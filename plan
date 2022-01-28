@@ -1,0 +1,16 @@
+payload
+
+{
+  entry_point: 1
+  car_size: 0,
+  plate_number: "ABC-123"
+}
+
+
+1. park
+
+validate ung car size tsaka plate number. pag true "already parked"
+kung di nag eexist ung record. create car details.
+find nearest then return the slot_id then store in variable
+
+always create parking record.
