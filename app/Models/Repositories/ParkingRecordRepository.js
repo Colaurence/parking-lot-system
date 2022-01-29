@@ -69,38 +69,82 @@ class ParkingRecordRepository {
       .where("status", "available")
       .fetch();
 
-    // {
-    //   slot: 24,
-    //   size: 0,
-    //   flat_rate: 40,
-    //   hourly_rate: 20,
-    //   day_rate: 5000,
-    //   status: 'available',
-    //   parking_slot_id: 24,
-    //   entry_point: 'B',
-    //   distance: 15
-    // }
     const query = await model.toJSON();
-    return query.reduce((slots, slot) => {
+    const groupBySize = query.reduce((slots, slot) => {
       if (slots[slot.size] === undefined) {
         slots = [...slots, { [slot.size]: [] }];
       }
-
-      const idx = slots.map((el) => Object.keys(el)[0]);
-      console.log(idx);
-      // slots[idx][slot.size].push({
-      //   id: slot.parking_slot_id,
-      //   slot: slot.slot,
-      //   entry_point: slot.entry_point,
-      //   distance: slot.distance,
-      //   flat_rate: slot.flat_rate,
-      //   hourly_rate: slot.hourly_rate,
-      //   day_rate: slot.day_rate,
-      //   status: slot.status,
-      // });
-
+      const sizes = slots.map((el) => Object.keys(el)[0]);
+      const idx = sizes.indexOf(slot.size.toString());
+      slots[idx][slot.size.toString()].push({
+        id: slot.parking_slot_id,
+        slot: slot.slot,
+        entry_point: slot.entry_point,
+        distance: slot.distance,
+        flat_rate: slot.flat_rate,
+        hourly_rate: slot.hourly_rate,
+        day_rate: slot.day_rate,
+        status: slot.status,
+      });
       return slots;
     }, []);
+    
+
+    const parseByDistance = groupBySize.map((size) => {
+      const key = Object.keys(size)[0];
+      const parse = size[key].reduce((slot, dist) => {
+        if (slot[dist.id] === undefined) {
+          slot[dist.id] = {
+            id: dist.id,
+            slot: dist.slot,
+            flat_rate: dist.flat_rate,
+            hourly_rate: dist.hourly_rate,
+            day_rate: dist.day_rate,
+            status: dist.status,
+            entry_points: [],
+          };
+        }
+
+        slot[dist.id].entry_points.push({
+          entry_point: dist.entry_point,
+          distance: dist.distance,
+        });
+        return slot;
+      }, {});
+      return { [key]: parse };
+    });
+    const convertToArray = parseByDistance.map((size) => {
+      const key = Object.keys(size)[0];
+      const spots = [];
+      for (const [k, value] of Object.entries(size[key])) {
+        spots.push(value);
+      }
+      return { [key]: spots };
+    });
+
+    // return convertToArray
+
+    // Map
+    // Object.keys = size
+    // var = goto here
+    // check avl spots
+    //
+    const carSize = "1";
+    const entryPoint = "C";
+    const getSize = convertToArray.find((s) => {
+      const key = Object.keys(s)[0];
+      return key == carSize;
+    });
+    console.log(getSize);
+    const getKey = Object.keys(getSize)[0];
+    const test = getSize[getKey].sort((a, b) => {
+      //here
+      const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
+      const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
+      return aa.distance - bb.distance;
+    });
+
+    return test;
   }
 
   async isFullParking(selectedFields, parkingSize) {
