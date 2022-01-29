@@ -42,3 +42,26 @@ class ParkingLotController {
 }
 
 module.exports = ParkingLotController;
+
+
+// const getAvailableSizes = convertToArray.map((el) => {
+    //   return Object.keys(el)[0];
+    // });
+
+    
+
+    // const avlSize = getAvailableSizes.filter(
+    //   (avl) => parseInt(avl) >= parseInt(carSize)
+    // );
+
+    // if (avlSize.length === 0) throw new Error("NO Available parking space");
+    // const getSlotsIdx = convertToArray.map((el) => Object.keys(el)[0]);
+    // const getSlot = getSlotsIdx.indexOf(avlSize[0].toString());
+    // const getSlotKey = Object.keys(convertToArray[getSlot])[0];
+    // const testCase1 = convertToArray[getSlot][getSlotKey].sort((a, b) => {
+     
+    //   const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
+    //   const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
+    //   return aa.distance - bb.distance;
+    // });
+    // return testCase1[0]

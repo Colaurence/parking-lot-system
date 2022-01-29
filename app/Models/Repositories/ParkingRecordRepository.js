@@ -22,6 +22,7 @@ const ParkingRecordNotFoundException = use(
 const isEmpty = use("lodash/isEmpty");
 const DB = use("Database");
 const isNil = use("lodash");
+const { parse } = require("@adonisjs/ace/lib/commander");
 const moment = require("moment");
 
 class ParkingRecordRepository {
@@ -70,41 +71,56 @@ class ParkingRecordRepository {
       .fetch();
 
     const query = await model.toJSON();
+
     const groupBySize = query.reduce((slots, slot) => {
-      if (slots[slot.size] === undefined) {
+      //Kuha all of d available Object keys
+      const checkSizes = slots.map((el) => {
+        if (Object.keys(el)[0] !== undefined) {
+          return Object.keys(el)[0];
+        }
+      });
+
+      //( ["0"].indexOf(slot.size) === -1))
+      // Check kung nag eexist na yung key(size), -1 means wala
+      if (checkSizes.indexOf(slot.size.toString()) === -1) {
+        // i sspread ung mga nasa slots na then i iinsert si size na walapa
         slots = [...slots, { [slot.size]: [] }];
+        // [ ...[{"0": []}], {"1": []}]
+        // slots = [{"0":[]}, {"1": []}]
       }
+
+      //kukuhanin yung keys na available kay slots
       const sizes = slots.map((el) => Object.keys(el)[0]);
+      // ["0", "1"]
+      //kukuhanin ung index nung size based kay slot size
       const idx = sizes.indexOf(slot.size.toString());
+      // 1
+      // [{"0":[]}, {"1": []}]
+      //pupush ung record kay size
       slots[idx][slot.size.toString()].push({
+        // slots[1]."1".push()
         id: slot.parking_slot_id,
         slot: slot.slot,
         entry_point: slot.entry_point,
         distance: slot.distance,
-        flat_rate: slot.flat_rate,
-        hourly_rate: slot.hourly_rate,
-        day_rate: slot.day_rate,
-        status: slot.status,
       });
       return slots;
     }, []);
-    
 
+    //Merge duplicate entries and group entry_point and distance
     const parseByDistance = groupBySize.map((size) => {
       const key = Object.keys(size)[0];
+      //"0".reduce()
       const parse = size[key].reduce((slot, dist) => {
         if (slot[dist.id] === undefined) {
           slot[dist.id] = {
             id: dist.id,
             slot: dist.slot,
-            flat_rate: dist.flat_rate,
-            hourly_rate: dist.hourly_rate,
-            day_rate: dist.day_rate,
-            status: dist.status,
             entry_points: [],
           };
         }
 
+        //"0"."1".entry_points.push()
         slot[dist.id].entry_points.push({
           entry_point: dist.entry_point,
           distance: dist.distance,
@@ -113,6 +129,8 @@ class ParkingRecordRepository {
       }, {});
       return { [key]: parse };
     });
+
+    //Priorizte by space S-M-L
     const convertToArray = parseByDistance.map((size) => {
       const key = Object.keys(size)[0];
       const spots = [];
@@ -122,29 +140,51 @@ class ParkingRecordRepository {
       return { [key]: spots };
     });
 
-    // return convertToArray
-
-    // Map
-    // Object.keys = size
-    // var = goto here
-    // check avl spots
-    //
-    const carSize = "1";
+    const carSize = "0";
     const entryPoint = "C";
-    const getSize = convertToArray.find((s) => {
-      const key = Object.keys(s)[0];
-      return key == carSize;
+
+    const getAvailableSizes = convertToArray.map((el) => {
+      return Object.keys(el)[0];
     });
-    console.log(getSize);
-    const getKey = Object.keys(getSize)[0];
-    const test = getSize[getKey].sort((a, b) => {
-      //here
+    const avlSize = getAvailableSizes.filter(
+      (avl) => parseInt(avl) >= parseInt(carSize)
+    );
+
+    if (avlSize.length === 0) throw new Error("NO Available parking space");
+
+    // Test Case 1 Scenario: put car to the nereast space starting with car size (smol car = smol parking)
+
+    // const getSlotsIdx = convertToArray.map((el) => Object.keys(el)[0]);
+    // const getSlot = getSlotsIdx.indexOf(avlSize[0].toString());
+    // const getSlotKey = Object.keys(convertToArray[getSlot])[0];
+    // const testCase1 = convertToArray[getSlot][getSlotKey].sort((a, b) => {
+
+    //   const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
+    //   const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
+    //   return aa.distance - bb.distance;
+    // });
+    // return testCase1[0]
+
+    //Test Case 2 Scenario: put car to the nereast avl spave regardless of size
+    // // const carSize = "1";
+    const convertToArrayNoSizes = parseByDistance.reduce((sizes, size) => {
+      const key = Object.keys(size)[0];
+      if (parseInt(key) < carSize) return sizes;
+      const spots = [];
+      for (const [k, value] of Object.entries(size[key])) {
+        spots.push(value);
+      }
+
+      return [...sizes, ...spots];
+    }, []);
+
+    const testCase2 = convertToArrayNoSizes.sort((a, b) => {
       const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
       const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
       return aa.distance - bb.distance;
     });
 
-    return test;
+    return testCase2[0];
   }
 
   async isFullParking(selectedFields, parkingSize) {
