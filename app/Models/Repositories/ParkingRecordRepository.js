@@ -7,7 +7,6 @@ const ParkingSlot = use("App/Models/ParkingSlot");
 const Payment = use("App/Models/PaymentDetail");
 const RecordNotFoundException = use("App/Exceptions/RecordNotFoundException");
 const CreateException = use("App/Exceptions/CreateException");
-const CarSizeParkingException = use("App/Exceptions/CarSizeParkingException");
 const EntryPointNotFoundException = use(
   "App/Exceptions/EntryPointNotFoundException"
 );
@@ -20,9 +19,6 @@ const ParkingRecordNotFoundException = use(
   "App/Exceptions/ParkingRecordNotFoundException"
 );
 const isEmpty = use("lodash/isEmpty");
-const DB = use("Database");
-const isNil = use("lodash");
-const { parse } = require("@adonisjs/ace/lib/commander");
 const moment = require("moment");
 
 class ParkingRecordRepository {
@@ -48,6 +44,22 @@ class ParkingRecordRepository {
   }
 
   async getNearestSlot(data) {
+    let CarDetails = await this.findByPlateNumber(data.plate_number);
+
+    if (CarDetails === false) {
+      CarDetails = await this.create(data.car_size, data.plate_number);
+    }
+    const car_id = CarDetails.id;
+
+    const isCarParked = await this.findParkingRecordIfAlreadyExists(
+      car_id,
+      data.plate_number
+    );
+
+    if (isCarParked) {
+      throw new CarAlreadyParkedException();
+    }
+
     const selectedFields = [
       "parking_slots.slot",
       "parking_slots.size",
@@ -73,44 +85,32 @@ class ParkingRecordRepository {
     const query = await model.toJSON();
 
     const groupBySize = query.reduce((slots, slot) => {
-      //Kuha all of d available Object keys
       const checkSizes = slots.map((el) => {
         if (Object.keys(el)[0] !== undefined) {
           return Object.keys(el)[0];
         }
       });
 
-      //( ["0"].indexOf(slot.size) === -1))
-      // Check kung nag eexist na yung key(size), -1 means wala
       if (checkSizes.indexOf(slot.size.toString()) === -1) {
-        // i sspread ung mga nasa slots na then i iinsert si size na walapa
         slots = [...slots, { [slot.size]: [] }];
-        // [ ...[{"0": []}], {"1": []}]
-        // slots = [{"0":[]}, {"1": []}]
       }
 
-      //kukuhanin yung keys na available kay slots
       const sizes = slots.map((el) => Object.keys(el)[0]);
-      // ["0", "1"]
-      //kukuhanin ung index nung size based kay slot size
       const idx = sizes.indexOf(slot.size.toString());
-      // 1
-      // [{"0":[]}, {"1": []}]
-      //pupush ung record kay size
+
       slots[idx][slot.size.toString()].push({
-        // slots[1]."1".push()
         id: slot.parking_slot_id,
         slot: slot.slot,
+        size: slot.size,
         entry_point: slot.entry_point,
         distance: slot.distance,
       });
+
       return slots;
     }, []);
 
-    //Merge duplicate entries and group entry_point and distance
     const parseByDistance = groupBySize.map((size) => {
       const key = Object.keys(size)[0];
-      //"0".reduce()
       const parse = size[key].reduce((slot, dist) => {
         if (slot[dist.id] === undefined) {
           slot[dist.id] = {
@@ -120,17 +120,20 @@ class ParkingRecordRepository {
           };
         }
 
-        //"0"."1".entry_points.push()
         slot[dist.id].entry_points.push({
           entry_point: dist.entry_point,
           distance: dist.distance,
         });
         return slot;
       }, {});
+
       return { [key]: parse };
     });
 
-    //Priorizte by space S-M-L
+    const carSize = data.car_size;
+    const entryPoint = data.entry_point;
+
+    // Test Case 1 Scenario: put car to the nereast space starting with car size (smol car = smol parking)
     const convertToArray = parseByDistance.map((size) => {
       const key = Object.keys(size)[0];
       const spots = [];
@@ -140,75 +143,64 @@ class ParkingRecordRepository {
       return { [key]: spots };
     });
 
-    const carSize = "0";
-    const entryPoint = "C";
-
     const getAvailableSizes = convertToArray.map((el) => {
       return Object.keys(el)[0];
     });
     const avlSize = getAvailableSizes.filter(
       (avl) => parseInt(avl) >= parseInt(carSize)
     );
+    if (avlSize.length === 0) throw new FullParkingException()
 
-    if (avlSize.length === 0) throw new Error("NO Available parking space");
-
-    // Test Case 1 Scenario: put car to the nereast space starting with car size (smol car = smol parking)
-
-    // const getSlotsIdx = convertToArray.map((el) => Object.keys(el)[0]);
+    // const getSlotsIdx = getAvailableSizes;
     // const getSlot = getSlotsIdx.indexOf(avlSize[0].toString());
     // const getSlotKey = Object.keys(convertToArray[getSlot])[0];
     // const testCase1 = convertToArray[getSlot][getSlotKey].sort((a, b) => {
-
     //   const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
     //   const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
     //   return aa.distance - bb.distance;
     // });
-    // return testCase1[0]
 
-    //Test Case 2 Scenario: put car to the nereast avl spave regardless of size
-    // // const carSize = "1";
+    // return testCase1
+
+    //Test Case 2 Scenario: put car to the nereast avl space regardless of size
     const convertToArrayNoSizes = parseByDistance.reduce((sizes, size) => {
       const key = Object.keys(size)[0];
-      if (parseInt(key) < carSize) return sizes;
+      if (parseInt(key) < parseInt(carSize)) {
+        return sizes;
+      }
+
       const spots = [];
+
       for (const [k, value] of Object.entries(size[key])) {
         spots.push(value);
       }
-
       return [...sizes, ...spots];
     }, []);
 
     const testCase2 = convertToArrayNoSizes.sort((a, b) => {
       const aa = a.entry_points.find((ep) => ep.entry_point == entryPoint);
       const bb = b.entry_points.find((ep) => ep.entry_point == entryPoint);
+
       return aa.distance - bb.distance;
     });
 
-    return testCase2[0];
-  }
+    const nearestSlot = testCase2[0].id;
+    let payment = await this.createPayment();
+    const payment_id = payment.id;
 
-  async isFullParking(selectedFields, parkingSize) {
-    const isFullParking = await ParkingSlot.query()
-      .select(selectedFields)
-      .leftJoin(
-        "parking_lots",
-        "parking_lots.id",
-        "parking_slots.parking_lot_id"
-      )
-      .where("status", "available")
-      .andWhere("parking_lots.size", parkingSize)
-      .fetch();
-    if (isFullParking.rows == 0) {
-      return 1;
-    }
-    return 0;
+    const payment_record = await this.createParkingRecord(
+      nearestSlot,
+      car_id,
+      payment_id
+    );
+    return payment_record;
   }
 
   async unpark(id) {
     const parkingRecord = await this.findParkingRecord(id);
     await this.checkPaymentRecord(parkingRecord.payment_details_id);
     const parkingRate = await this.findParkingRates(
-      parkingRecord.parking_lot_id
+      parkingRecord.parking_slot_id
     );
 
     let timeIn = moment(parkingRecord.created_at);
@@ -302,9 +294,7 @@ class ParkingRecordRepository {
 
   async findPreviousParkingRecord(car_details_id) {
     const selectedFields = [
-      "parking_records.id",
-      "parking_lots.description",
-      "parking_lots.entry_point",
+      "parking_slot_distances.entry_point",
       "parking_slots.slot",
       "car_details.plate_number",
       "payment_details.status",
@@ -316,13 +306,13 @@ class ParkingRecordRepository {
     let model = await ParkingRecord.query()
       .select(selectedFields)
       .leftJoin(
-        "parking_lots",
-        "parking_records.parking_lot_id",
-        "parking_lots.id"
-      )
-      .leftJoin(
         "parking_slots",
         "parking_records.parking_slot_id",
+        "parking_slots.id"
+      )
+      .leftJoin(
+        "parking_slot_distances",
+        "parking_slot_distances.parking_slot_id",
         "parking_slots.id"
       )
       .leftJoin(
@@ -375,9 +365,9 @@ class ParkingRecordRepository {
     throw new EntryPointNotFoundException();
   }
 
-  async findParkingRates(parking_lot_id) {
-    const checker = await ParkingLot.query()
-      .where("id", parking_lot_id)
+  async findParkingRates(parking_slot_id) {
+    const checker = await ParkingSlot.query()
+      .where("id", parking_slot_id)
       .first();
     if (checker) {
       return checker;
@@ -406,10 +396,9 @@ class ParkingRecordRepository {
     }
   }
 
-  async createParkingRecord(lot_id, slot_id, car_id, payment_id) {
+  async createParkingRecord(slot_id, car_id, payment_id) {
     try {
       const parkingRecord = await ParkingRecord.create({
-        parking_lot_id: lot_id,
         parking_slot_id: slot_id,
         car_details_id: car_id,
         payment_details_id: payment_id,
