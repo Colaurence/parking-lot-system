@@ -336,23 +336,22 @@ class ParkingRecordRepository {
   async findParkingRecordIfAlreadyExists(car_id, plate_number) {
     const checker = await ParkingRecord.query()
       .leftJoin(
-        "parking_slots",
-        "parking_records.parking_slot_id",
-        "parking_slots.id"
-      )
-      .leftJoin(
         "car_details",
         "parking_records.car_details_id",
         "car_details.id"
       )
-      .where("parking_slots.status", "occupied")
+      .leftJoin(
+        "payment_details",
+        "payment_details.id",
+        "parking_records.payment_details_id"
+      )
+      .where("payment_details.status", "pending")
       .andWhere("car_details.id", car_id)
       .andWhere("car_details.plate_number", plate_number)
       .first();
 
-    if (checker) {
-      return checker;
-    }
+      return !!checker;
+    
   }
 
   async isValidEntryPoint(entry_point) {
@@ -448,15 +447,13 @@ class ParkingRecordRepository {
 
   async getDayRate(total_fee, time_spent, hourly_rate, day_rate) {
     if (time_spent >= 24) {
-      let tempTimeSpent = time_spent - 24;
-
-      let DayRate = parseFloat(day_rate);
-
-      let hourlyRate =
-        tempTimeSpent > 0 ? parseInt(hourly_rate) * tempTimeSpent : 0;
+      const overnight = Math.floor(time_spent / 24);
+      const DayRate = parseFloat(day_rate);
+      const total_overnight_fee = parseFloat(overnight * DayRate)
+      const remaining_hours = time_spent - (overnight * 24)
 
       total_fee = parseFloat(
-        parseFloat(DayRate) + parseFloat(hourlyRate)
+        parseFloat(total_overnight_fee) + parseFloat(remaining_hours * hourly_rate)
       ).toFixed(2);
 
       return total_fee;

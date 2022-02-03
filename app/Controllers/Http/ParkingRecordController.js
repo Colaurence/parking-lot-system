@@ -22,7 +22,7 @@ class ParkingRecordController {
     const data = await ParkingRecordRepository.getNearestSlot({
       ...payload,
     });
-    return data
+    // return data
     return await transform.item(data, ParkTransformer);
   }
 
